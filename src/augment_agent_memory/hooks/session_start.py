@@ -28,6 +28,7 @@ async def ensure_summary_view_exists(
     try:
         existing = await client.get_summary_view(view_name)
         if existing is None:
+            sys.stderr.write(f"Creating summary view: {view_name}\n")
             # Create the summary view
             request = CreateSummaryViewRequest(
                 name=view_name,
@@ -35,9 +36,11 @@ async def ensure_summary_view_exists(
                 group_by=group_by,
             )
             await client.create_summary_view(request)
-    except Exception:
+        else:
+            sys.stderr.write(f"Summary view exists: {view_name}\n")
+    except Exception as e:
         # Don't fail if we can't create the view
-        pass
+        sys.stderr.write(f"Error with summary view {view_name}: {e}\n")
 
 
 async def get_summary_context(
@@ -56,9 +59,13 @@ async def get_summary_context(
             session_id=session_id,
         )
         if partitions:
-            return partitions[0].summary
-    except Exception:
-        pass
+            summary = partitions[0].summary
+            sys.stderr.write(f"Got summary from {view_name}: {len(summary or '')} chars\n")
+            return summary
+        else:
+            sys.stderr.write(f"No partitions found for {view_name}\n")
+    except Exception as e:
+        sys.stderr.write(f"Error getting summary from {view_name}: {e}\n")
     return None
 
 
@@ -82,8 +89,11 @@ async def search_relevant_memories(
             limit=limit,
             distance_threshold=1 - min_score,
         )
-        return [m.text for m in results.memories if m.text]
-    except Exception:
+        memories = [m.text for m in results.memories if m.text]
+        sys.stderr.write(f"Found {len(memories)} relevant memories\n")
+        return memories
+    except Exception as e:
+        sys.stderr.write(f"Error searching memories: {e}\n")
         return []
 
 
@@ -138,6 +148,8 @@ async def run_hook() -> None:
     session_id = None
     if config.use_persistent_session and workspace_root:
         session_id = get_persistent_session_id(workspace_root, conversation_id)
+
+    sys.stderr.write(f"SessionStart: namespace={namespace}, session_id={session_id}, workspace={workspace_root}\n")
 
     client_config = MemoryClientConfig(
         base_url=config.server_url,
