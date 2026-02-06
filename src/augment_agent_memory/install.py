@@ -20,6 +20,12 @@ def get_hooks_dir() -> Path:
     return hooks_dir
 
 
+def get_log_file() -> Path:
+    """Get the log file path for hook output."""
+    home = Path.home()
+    return home / ".augment" / "memory-hooks" / "hooks.log"
+
+
 def create_hook_scripts(hooks_dir: Path, use_fixed_python: bool = True) -> dict[str, Path]:
     """Create shell script wrappers for the Python hooks.
 
@@ -29,6 +35,7 @@ def create_hook_scripts(hooks_dir: Path, use_fixed_python: bool = True) -> dict[
             If False, use the 'augment-memory-*' entry points which rely on PATH.
     """
     scripts = {}
+    log_file = get_log_file()
 
     if use_fixed_python:
         # Use the specific Python that has the package installed
@@ -46,7 +53,12 @@ def create_hook_scripts(hooks_dir: Path, use_fixed_python: bool = True) -> dict[
     session_start_script = hooks_dir / "session_start.sh"
     session_start_script.write_text(f"""#!/bin/bash
 # Augment Memory - SessionStart Hook
-exec {session_start_cmd}
+LOG_FILE="{log_file}"
+echo "[$(date -Iseconds)] SessionStart hook started" >> "$LOG_FILE"
+{session_start_cmd} 2>> "$LOG_FILE"
+EXIT_CODE=$?
+echo "[$(date -Iseconds)] SessionStart hook finished with exit code $EXIT_CODE" >> "$LOG_FILE"
+exit $EXIT_CODE
 """)
     session_start_script.chmod(session_start_script.stat().st_mode | stat.S_IEXEC)
     scripts["SessionStart"] = session_start_script
@@ -55,7 +67,12 @@ exec {session_start_cmd}
     stop_script = hooks_dir / "stop.sh"
     stop_script.write_text(f"""#!/bin/bash
 # Augment Memory - Stop Hook
-exec {stop_cmd}
+LOG_FILE="{log_file}"
+echo "[$(date -Iseconds)] Stop hook started" >> "$LOG_FILE"
+{stop_cmd} 2>> "$LOG_FILE"
+EXIT_CODE=$?
+echo "[$(date -Iseconds)] Stop hook finished with exit code $EXIT_CODE" >> "$LOG_FILE"
+exit $EXIT_CODE
 """)
     stop_script.chmod(stop_script.stat().st_mode | stat.S_IEXEC)
     scripts["Stop"] = stop_script
@@ -64,7 +81,12 @@ exec {stop_cmd}
     post_tool_script = hooks_dir / "post_tool_use.sh"
     post_tool_script.write_text(f"""#!/bin/bash
 # Augment Memory - PostToolUse Hook (tool tracking)
-exec {post_tool_cmd}
+LOG_FILE="{log_file}"
+echo "[$(date -Iseconds)] PostToolUse hook started" >> "$LOG_FILE"
+{post_tool_cmd} 2>> "$LOG_FILE"
+EXIT_CODE=$?
+echo "[$(date -Iseconds)] PostToolUse hook finished with exit code $EXIT_CODE" >> "$LOG_FILE"
+exit $EXIT_CODE
 """)
     post_tool_script.chmod(post_tool_script.stat().st_mode | stat.S_IEXEC)
     scripts["PostToolUse"] = post_tool_script
@@ -199,6 +221,8 @@ def main():
     update_augment_settings(scripts, enable_tool_tracking=args.enable_tool_tracking)
 
     print("\nInstallation complete!")
+    print(f"\nHook logs: {get_log_file()}")
+    print("  tail -f ~/.augment/memory-hooks/hooks.log")
     print("\nConfigure the memory server:")
     print("  export AGENT_MEMORY_SERVER_URL=http://localhost:8000")
     print("  export AGENT_MEMORY_NAMESPACE=augment")
