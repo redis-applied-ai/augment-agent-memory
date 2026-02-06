@@ -214,9 +214,14 @@ async def run_hook() -> None:
             # Build and output context
             context = build_context(workspace_summary, session_summary, memories)
 
+            # Log what we're sending to Augment
             if context:
+                sys.stderr.write(f"--- Context being sent to Augment ({len(context)} chars) ---\n")
+                sys.stderr.write(context + "\n")
+                sys.stderr.write("--- End context ---\n")
                 print(context)
             else:
+                sys.stderr.write("No context to send to Augment\n")
                 print(json.dumps({}))
 
         except Exception as e:
