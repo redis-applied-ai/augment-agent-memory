@@ -28,25 +28,31 @@ async def ensure_summary_view_exists(
     client: MemoryAPIClient,
     view_name: str,
     group_by: list[str],
-) -> bool:
+) -> str | None:
     """Ensure a summary view exists, creating it if needed.
 
-    Returns True if view exists or was created, False on error.
+    Returns the view ID if found or created, None on error.
     """
     try:
-        existing = await client.get_summary_view(view_name)
-        if existing is None:
-            sys.stderr.write(f"Creating summary view: {view_name}\n")
-            request = CreateSummaryViewRequest(
-                name=view_name,
-                source="long_term",
-                group_by=group_by,
-            )
-            await client.create_summary_view(request)
-        return True
+        # List all views and find by name
+        views = await client.list_summary_views()
+        for view in views:
+            if view.name == view_name:
+                sys.stderr.write(f"Summary view exists: {view_name} (id={view.id})\n")
+                return view.id
+
+        # Not found, create it
+        sys.stderr.write(f"Creating summary view: {view_name}\n")
+        request = CreateSummaryViewRequest(
+            name=view_name,
+            source="long_term",
+            group_by=group_by,
+        )
+        created = await client.create_summary_view(request)
+        return created.id
     except Exception as e:
         sys.stderr.write(f"Error with summary view {view_name}: {e}\n")
-        return False
+        return None
 
 
 def extract_messages_from_conversation(conversation: dict) -> list[MemoryMessage]:
@@ -181,18 +187,20 @@ async def run_hook() -> None:
             # Kick off async refresh of summary views (ensure they exist first)
             if config.create_workspace_summary and workspace_root:
                 ws_view_name = get_workspace_summary_view_name(workspace_root)
-                if await ensure_summary_view_exists(client, ws_view_name, ["namespace"]):
+                ws_view_id = await ensure_summary_view_exists(client, ws_view_name, ["namespace"])
+                if ws_view_id:
                     try:
-                        task = await client.run_summary_view(ws_view_name)
+                        task = await client.run_summary_view(ws_view_id)
                         sys.stderr.write(f"Started workspace summary refresh task: {task.id}\n")
                     except Exception as e:
                         sys.stderr.write(f"Failed to start workspace summary refresh: {e}\n")
 
             if config.create_session_summary and workspace_root:
                 sess_view_name = get_session_summary_view_name(workspace_root, session_id)
-                if await ensure_summary_view_exists(client, sess_view_name, ["namespace", "session_id"]):
+                sess_view_id = await ensure_summary_view_exists(client, sess_view_name, ["namespace", "session_id"])
+                if sess_view_id:
                     try:
-                        task = await client.run_summary_view(sess_view_name)
+                        task = await client.run_summary_view(sess_view_id)
                         sys.stderr.write(f"Started session summary refresh task: {task.id}\n")
                     except Exception as e:
                         sys.stderr.write(f"Failed to start session summary refresh: {e}\n")
