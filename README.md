@@ -16,6 +16,35 @@ Redis Agent Memory integration for Augment Code CLI (Augie). Provides persistent
 - A running [Redis Agent Memory Server](https://redis.github.io/agent-memory-server)
 - [Augment Code CLI](https://docs.augmentcode.com/cli) installed
 
+### Starting the Memory Server
+
+If you don't already have a Redis Agent Memory Server running, you can start the standalone Docker image:
+
+```bash
+docker run -d \
+  --name agent-memory \
+  --platform linux/amd64 \
+  --env-file .env \
+  -p 8000:8000 \
+  -p 6899:6379 \
+  redislabs/agent-memory-server:0.13.1-standalone
+```
+
+This starts the memory server on port 8000 with an embedded Redis instance on port 6899.
+
+Create a `.env` file with your configuration:
+
+```bash
+# .env
+OPENAI_API_KEY=your-openai-key  # Required for embeddings
+```
+
+Verify the server is running:
+
+```bash
+curl http://localhost:8000/health
+```
+
 ## Installation
 
 ```bash
