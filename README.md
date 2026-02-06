@@ -27,7 +27,7 @@ docker run -d \
   --env-file .env \
   -p 8000:8000 \
   -p 6899:6379 \
-  redislabs/agent-memory-server:0.13.1-standalone
+  redislabs/agent-memory-server:0.13.2-standalone
 ```
 
 This starts the memory server on port 8000 with an embedded Redis instance on port 6899.
