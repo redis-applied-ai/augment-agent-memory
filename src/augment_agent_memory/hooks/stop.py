@@ -10,8 +10,6 @@ from agent_memory_client import MemoryAPIClient, MemoryClientConfig
 from agent_memory_client.models import (
     CreateSummaryViewRequest,
     MemoryMessage,
-    MemoryStrategyConfig,
-    WorkingMemory,
 )
 
 from ..config import load_config
@@ -160,29 +158,15 @@ async def run_hook() -> None:
                 print(json.dumps({}))
                 return
 
-            # Configure extraction strategy
-            strategy_config = MemoryStrategyConfig(
-                strategy=config.extraction_strategy,
-            )
-
-            # Create working memory with messages for this turn
-            # Using persistent session ID means all turns in the same conversation
-            # get added to the same working memory, building the thread
-            working_memory = WorkingMemory(
+            # Append messages to existing session (creates session if needed)
+            # This preserves existing messages instead of replacing them
+            await client.append_messages_to_working_memory(
                 session_id=session_id,
+                messages=messages,
                 namespace=namespace,
                 user_id=config.user_id,
-                messages=messages,
-                long_term_memory_strategy=strategy_config,
             )
-
-            # Store in working memory - this adds to existing messages for the session
-            # Background extraction will process and create long-term memories
-            await client.put_working_memory(
-                session_id=session_id,
-                memory=working_memory,
-            )
-            sys.stderr.write(f"Saved {len(messages)} messages to working memory\n")
+            sys.stderr.write(f"Appended {len(messages)} messages to working memory\n")
 
             # Kick off async refresh of summary views (ensure they exist first)
             if config.create_workspace_summary and workspace_root:

@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 
 from agent_memory_client import MemoryAPIClient, MemoryClientConfig
-from agent_memory_client.models import MemoryMessage, MemoryStrategyConfig, WorkingMemory
+from agent_memory_client.models import MemoryMessage
 
 from ..config import load_config
 from ..workspace import (
@@ -120,19 +120,13 @@ async def run_hook() -> None:
                 )
             ]
 
-            strategy_config = MemoryStrategyConfig(strategy="discrete")
-
-            working_memory = WorkingMemory(
+            # Append messages to existing session (creates session if needed)
+            # This preserves existing messages instead of replacing them
+            await client.append_messages_to_working_memory(
                 session_id=session_id,
+                messages=messages,
                 namespace=namespace,
                 user_id=config.user_id,
-                messages=messages,
-                long_term_memory_strategy=strategy_config,
-            )
-
-            await client.put_working_memory(
-                session_id=session_id,
-                memory=working_memory,
             )
 
             print(json.dumps({}))
