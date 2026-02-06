@@ -12,8 +12,10 @@ from agent_memory_client.models import MemoryMessage, MemoryStrategyConfig, Work
 from ..config import load_config
 from ..workspace import (
     get_persistent_session_id,
+    get_session_summary_view_name,
     get_workspace_namespace,
     get_workspace_root,
+    get_workspace_summary_view_name,
 )
 
 
@@ -144,6 +146,24 @@ async def run_hook() -> None:
                 session_id=session_id,
                 memory=working_memory,
             )
+            sys.stderr.write(f"Saved {len(messages)} messages to working memory\n")
+
+            # Kick off async refresh of summary views
+            if config.create_workspace_summary and workspace_root:
+                ws_view_name = get_workspace_summary_view_name(workspace_root)
+                try:
+                    task = await client.run_summary_view(ws_view_name)
+                    sys.stderr.write(f"Started workspace summary refresh task: {task.id}\n")
+                except Exception as e:
+                    sys.stderr.write(f"Failed to start workspace summary refresh: {e}\n")
+
+            if config.create_session_summary and workspace_root:
+                sess_view_name = get_session_summary_view_name(workspace_root, session_id)
+                try:
+                    task = await client.run_summary_view(sess_view_name)
+                    sys.stderr.write(f"Started session summary refresh task: {task.id}\n")
+                except Exception as e:
+                    sys.stderr.write(f"Failed to start session summary refresh: {e}\n")
 
             print(json.dumps({}))
 

@@ -46,24 +46,33 @@ async def ensure_summary_view_exists(
 async def get_summary_context(
     client: MemoryAPIClient,
     view_name: str,
-    group: dict[str, str],
+    namespace: str | None = None,
+    user_id: str | None = None,
+    session_id: str | None = None,
 ) -> str | None:
-    """Get summary from a summary view by running the partition.
+    """Get cached summary from a summary view (does not refresh).
 
     Args:
         client: Memory API client
         view_name: Name of the summary view
-        group: Concrete values for the view's group_by fields
-            e.g., {"namespace": "my-namespace"} or {"namespace": "ns", "session_id": "sess"}
+        namespace: Optional namespace filter
+        user_id: Optional user ID filter
+        session_id: Optional session ID filter
     """
     try:
-        sys.stderr.write(f"Running partition for {view_name} with group={group}\n")
-        result = await client.run_summary_view_partition(view_name, group)
-        if result and result.summary:
-            sys.stderr.write(f"Got summary from {view_name}: {len(result.summary)} chars, {result.memory_count} memories\n")
-            return result.summary
+        sys.stderr.write(f"Listing partitions for {view_name}\n")
+        partitions = await client.list_summary_view_partitions(
+            view_name,
+            namespace=namespace,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        if partitions and partitions[0].summary:
+            summary = partitions[0].summary
+            sys.stderr.write(f"Got cached summary from {view_name}: {len(summary)} chars\n")
+            return summary
         else:
-            sys.stderr.write(f"No summary generated for {view_name}\n")
+            sys.stderr.write(f"No cached summary found for {view_name}\n")
     except Exception as e:
         sys.stderr.write(f"Error getting summary from {view_name}: {e}\n")
     return None
@@ -167,7 +176,7 @@ async def run_hook() -> None:
                 ws_view_name = get_workspace_summary_view_name(workspace_root)
                 await ensure_summary_view_exists(client, ws_view_name, ["namespace"])
                 workspace_summary = await get_summary_context(
-                    client, ws_view_name, group={"namespace": namespace}
+                    client, ws_view_name, namespace=namespace
                 )
 
             # Get session-level summary if enabled
@@ -177,7 +186,7 @@ async def run_hook() -> None:
                     client, sess_view_name, ["namespace", "session_id"]
                 )
                 session_summary = await get_summary_context(
-                    client, sess_view_name, group={"namespace": namespace, "session_id": session_id}
+                    client, sess_view_name, namespace=namespace, session_id=session_id
                 )
 
             # Search for relevant memories using generic query
