@@ -1,0 +1,41 @@
+[project]
+name = "augment-agent-memory"
+version = "0.1.0"
+description = "Redis Agent Memory integration for Augment Code CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "agent-memory-client>=0.14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+augment-memory-session-start = "augment_agent_memory.hooks.session_start:main"
+augment-memory-stop = "augment_agent_memory.hooks.stop:main"
+augment-memory-post-tool-use = "augment_agent_memory.hooks.post_tool_use:main"
+augment-memory-install = "augment_agent_memory.install:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/augment_agent_memory"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
