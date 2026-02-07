@@ -106,10 +106,6 @@ async def run_hook() -> None:
     """Async entry point for Stop hook - saves conversation turn immediately."""
     config = load_config()
 
-    if not config.auto_capture:
-        print(json.dumps({}))
-        return
-
     # Read hook input from stdin
     try:
         hook_input = json.load(sys.stdin)
@@ -119,13 +115,10 @@ async def run_hook() -> None:
 
     # Extract conversation data (requires includeConversationData: true in hook config)
     conversation = hook_input.get("conversation", {})
-    if not conversation:
-        print(json.dumps({}))
-        return
 
     # Extract workspace and conversation info
     workspace_roots = hook_input.get("workspace_roots", [])
-    conversation_id = hook_input.get("conversation_id")
+    conversation_id = hook_input.get("conversation_id", "unknown")
     workspace_root = get_workspace_root(workspace_roots)
 
     # Determine namespace (workspace-scoped if enabled)
@@ -137,11 +130,12 @@ async def run_hook() -> None:
     if config.use_persistent_session and workspace_root:
         session_id = get_persistent_session_id(workspace_root, conversation_id)
     else:
-        # Fall back to timestamp-based session ID
-        session_id = (
-            f"augment-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-            f"-{uuid.uuid4().hex[:8]}"
-        )
+        session_id = f"augment-{conversation_id}"
+
+    # Skip memory capture if disabled or no conversation
+    if not config.auto_capture or not conversation:
+        print(json.dumps({}))
+        return
 
     client_config = MemoryClientConfig(
         base_url=config.server_url,
@@ -171,23 +165,35 @@ async def run_hook() -> None:
             # Kick off async refresh of summary views (ensure they exist first)
             if config.create_workspace_summary and workspace_root:
                 ws_view_name = get_workspace_summary_view_name(workspace_root)
-                ws_view_id = await ensure_summary_view_exists(client, ws_view_name, ["namespace"])
+                ws_view_id = await ensure_summary_view_exists(
+                    client, ws_view_name, ["namespace"]
+                )
                 if ws_view_id:
                     try:
                         task = await client.run_summary_view(ws_view_id)
-                        sys.stderr.write(f"Started workspace summary refresh task: {task.id}\n")
+                        sys.stderr.write(
+                            f"Started workspace summary refresh task: {task.id}\n"
+                        )
                     except Exception as e:
-                        sys.stderr.write(f"Failed to start workspace summary refresh: {e}\n")
+                        sys.stderr.write(
+                            f"Failed to start workspace summary refresh: {e}\n"
+                        )
 
             if config.create_session_summary and workspace_root:
                 sess_view_name = get_session_summary_view_name(workspace_root, session_id)
-                sess_view_id = await ensure_summary_view_exists(client, sess_view_name, ["namespace", "session_id"])
+                sess_view_id = await ensure_summary_view_exists(
+                    client, sess_view_name, ["namespace", "session_id"]
+                )
                 if sess_view_id:
                     try:
                         task = await client.run_summary_view(sess_view_id)
-                        sys.stderr.write(f"Started session summary refresh task: {task.id}\n")
+                        sys.stderr.write(
+                            f"Started session summary refresh task: {task.id}\n"
+                        )
                     except Exception as e:
-                        sys.stderr.write(f"Failed to start session summary refresh: {e}\n")
+                        sys.stderr.write(
+                            f"Failed to start session summary refresh: {e}\n"
+                        )
 
             print(json.dumps({}))
 

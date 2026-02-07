@@ -139,10 +139,6 @@ async def run_hook() -> None:
     """Async entry point for SessionStart hook."""
     config = load_config()
 
-    if not config.auto_recall:
-        print(json.dumps({}))
-        return
-
     # Read hook input from stdin
     hook_input = {}
     try:
@@ -152,7 +148,7 @@ async def run_hook() -> None:
 
     # Extract workspace and conversation info from hook input
     workspace_roots = hook_input.get("workspace_roots", [])
-    conversation_id = hook_input.get("conversation_id")
+    conversation_id = hook_input.get("conversation_id", "unknown")
     workspace_root = get_workspace_root(workspace_roots)
 
     # Determine namespace (workspace-scoped if enabled)
@@ -164,8 +160,17 @@ async def run_hook() -> None:
     session_id = None
     if config.use_persistent_session and workspace_root:
         session_id = get_persistent_session_id(workspace_root, conversation_id)
+    else:
+        session_id = f"augment-{conversation_id}"
 
-    sys.stderr.write(f"SessionStart: namespace={namespace}, session_id={session_id}, workspace={workspace_root}\n")
+    sys.stderr.write(
+        f"SessionStart: namespace={namespace}, session_id={session_id}, "
+        f"workspace={workspace_root}\n"
+    )
+
+    if not config.auto_recall:
+        print(json.dumps({}))
+        return
 
     client_config = MemoryClientConfig(
         base_url=config.server_url,
@@ -216,7 +221,9 @@ async def run_hook() -> None:
 
             # Log what we're sending to Augment
             if context:
-                sys.stderr.write(f"--- Context being sent to Augment ({len(context)} chars) ---\n")
+                sys.stderr.write(
+                    f"--- Context being sent to Augment ({len(context)} chars) ---\n"
+                )
                 sys.stderr.write(context + "\n")
                 sys.stderr.write("--- End context ---\n")
                 print(context)
