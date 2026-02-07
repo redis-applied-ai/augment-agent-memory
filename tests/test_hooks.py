@@ -656,6 +656,51 @@ class TestSessionStartRunHook:
             call_args = mock_print.call_args[0][0]
             assert "Workspace summary content" in call_args or "A relevant memory" in call_args
 
+    @pytest.mark.asyncio
+    async def test_run_hook_inner_exception(self):
+        """Test run_hook handles inner exceptions gracefully."""
+        mock_config = MagicMock()
+        mock_config.auto_recall = True
+        mock_config.use_workspace_namespace = False
+        mock_config.use_persistent_session = False
+        mock_config.namespace = "test"
+        mock_config.server_url = "http://localhost:8000"
+        mock_config.timeout = 30000
+        mock_config.create_workspace_summary = False
+        mock_config.create_session_summary = False
+        mock_config.recall_limit = 5
+        mock_config.min_score = 0.3
+        mock_config.summary_time_window_days = 30
+        mock_config.user_id = None
+
+        hook_input = json.dumps({"workspace_roots": ["/test"], "conversation_id": "123"})
+
+        # Mock the client
+        mock_client = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.memories = []
+        mock_client.search_long_term_memory.return_value = mock_result
+
+        mock_client_class = MagicMock()
+        mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        # Make build_context raise an exception
+        with (
+            patch("augment_agent_memory.hooks.session_start.load_config", return_value=mock_config),
+            patch("augment_agent_memory.hooks.session_start.MemoryAPIClient", mock_client_class),
+            patch(
+                "augment_agent_memory.hooks.session_start.build_context",
+                side_effect=Exception("Build error"),
+            ),
+            patch("sys.stdin", io.StringIO(hook_input)),
+            patch("builtins.print") as mock_print,
+            patch("sys.stderr"),
+        ):
+            await session_start_run()
+            # Should output empty on error
+            mock_print.assert_called_with("{}")
+
 
 class TestStopRunHook:
     """Tests for stop run_hook function."""
@@ -872,6 +917,93 @@ class TestStopRunHook:
             # Should still output empty on error
             mock_print.assert_called_with("{}")
 
+    @pytest.mark.asyncio
+    async def test_run_hook_with_empty_extracted_messages(self):
+        """Test run_hook when messages list is empty after extraction."""
+        mock_config = MagicMock()
+        mock_config.auto_capture = True
+        mock_config.use_workspace_namespace = False
+        mock_config.use_persistent_session = False
+        mock_config.namespace = "test"
+        mock_config.server_url = "http://localhost:8000"
+        mock_config.timeout = 30000
+        mock_config.user_id = None
+
+        # Conversation with empty strings - will result in empty messages list
+        hook_input = json.dumps({
+            "workspace_roots": ["/test"],
+            "conversation_id": "123",
+            "conversation": {
+                "userPrompt": "",
+                "agentTextResponse": "",
+            },
+        })
+
+        mock_client = AsyncMock()
+        mock_client_class = MagicMock()
+        mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("augment_agent_memory.hooks.stop.load_config", return_value=mock_config),
+            patch("augment_agent_memory.hooks.stop.MemoryAPIClient", mock_client_class),
+            patch("sys.stdin", io.StringIO(hook_input)),
+            patch("builtins.print") as mock_print,
+        ):
+            await stop_run()
+            # Should return early with empty output
+            mock_print.assert_called_with("{}")
+
+    @pytest.mark.asyncio
+    async def test_run_hook_summary_refresh_errors(self):
+        """Test run_hook handles summary refresh errors gracefully."""
+        mock_config = MagicMock()
+        mock_config.auto_capture = True
+        mock_config.use_workspace_namespace = True
+        mock_config.use_persistent_session = True
+        mock_config.namespace = "base"
+        mock_config.server_url = "http://localhost:8000"
+        mock_config.timeout = 30000
+        mock_config.create_workspace_summary = True
+        mock_config.create_session_summary = True
+        mock_config.user_id = "test-user"
+
+        hook_input = json.dumps({
+            "workspace_roots": ["/test/project"],
+            "conversation_id": "123",
+            "conversation": {
+                "userPrompt": "Hello",
+                "agentTextResponse": "Hi!",
+            },
+        })
+
+        # Mock the client
+        mock_client = AsyncMock()
+
+        # Mock summary view exists
+        mock_view = MagicMock()
+        mock_view.name = "ws_summary"
+        mock_view.id = "view-123"
+        mock_client.list_summary_views.return_value = [mock_view]
+
+        # Mock run_summary_view to raise an error
+        mock_client.run_summary_view.side_effect = Exception("Summary refresh failed")
+
+        mock_client_class = MagicMock()
+        mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("augment_agent_memory.hooks.stop.load_config", return_value=mock_config),
+            patch("augment_agent_memory.hooks.stop.MemoryAPIClient", mock_client_class),
+            patch("sys.stdin", io.StringIO(hook_input)),
+            patch("builtins.print") as mock_print,
+            patch("sys.stderr"),
+        ):
+            await stop_run()
+            # Should still complete successfully
+            mock_print.assert_called_with("{}")
+
 
 class TestPostToolRunHook:
     """Tests for post_tool_use run_hook function."""
@@ -1035,4 +1167,82 @@ class TestMainEntryPoints:
             patch("builtins.print"),
         ):
             post_tool_main()
+
+
+class TestIfNameMainBlocks:
+    """Tests for if __name__ == '__main__' blocks."""
+
+    def test_post_tool_use_module_main(self):
+        """Test post_tool_use module can be run as main."""
+        import runpy
+
+        mock_config = MagicMock()
+        mock_config.track_tool_usage = False
+
+        with (
+            patch("augment_agent_memory.hooks.post_tool_use.load_config", return_value=mock_config),
+            patch("builtins.print"),
+        ):
+            try:
+                runpy.run_module("augment_agent_memory.hooks.post_tool_use", run_name="__main__")
+            except SystemExit:
+                pass
+
+    def test_session_start_module_main(self):
+        """Test session_start module can be run as main."""
+        import runpy
+
+        mock_config = MagicMock()
+        mock_config.auto_recall = False
+        mock_config.use_workspace_namespace = False
+        mock_config.use_persistent_session = False
+        mock_config.namespace = "test"
+
+        with (
+            patch("augment_agent_memory.hooks.session_start.load_config", return_value=mock_config),
+            patch("sys.stdin", io.StringIO("{}")),
+            patch("builtins.print"),
+        ):
+            try:
+                runpy.run_module("augment_agent_memory.hooks.session_start", run_name="__main__")
+            except SystemExit:
+                pass
+
+    def test_stop_module_main(self):
+        """Test stop module can be run as main."""
+        import runpy
+
+        with (
+            patch("sys.stdin", io.StringIO("{}")),
+            patch("builtins.print"),
+        ):
+            try:
+                runpy.run_module("augment_agent_memory.hooks.stop", run_name="__main__")
+            except SystemExit:
+                pass
+
+    def test_install_module_main(self):
+        """Test install module can be run as main."""
+        import runpy
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hooks_dir = Path(tmpdir) / ".augment" / "memory-hooks"
+            settings_path = Path(tmpdir) / ".augment" / "settings.json"
+            hooks_dir.mkdir(parents=True)
+
+            with (
+                patch("augment_agent_memory.install.get_hooks_dir", return_value=hooks_dir),
+                patch(
+                    "augment_agent_memory.install.get_augment_settings_path",
+                    return_value=settings_path,
+                ),
+                patch("sys.argv", ["augment-memory-install"]),
+                patch("builtins.print"),
+            ):
+                try:
+                    runpy.run_module("augment_agent_memory.install", run_name="__main__")
+                except SystemExit:
+                    pass
 
