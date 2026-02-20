@@ -26,6 +26,41 @@ def get_log_file() -> Path:
     return home / ".augment" / "memory-hooks" / "hooks.log"
 
 
+def _get_config_loader_script() -> str:
+    """Generate bash code to load memory config from dashboard config.json.
+
+    This allows memory hooks to read settings from the dashboard UI config
+    without requiring environment variables to be set manually.
+    """
+    config_path = Path.home() / ".augment" / "dashboard" / "config.json"
+    return f'''
+# Load memory config from dashboard config.json (if present)
+CONFIG_FILE="{config_path}"
+if [ -f "$CONFIG_FILE" ]; then
+    # Extract memory config using Python (most reliable JSON parsing)
+    MEMORY_CONFIG=$({sys.executable} -c "
+import json
+import sys
+try:
+    with open('$CONFIG_FILE') as f:
+        config = json.load(f)
+    memory = config.get('memory', {{}})
+    for key, value in memory.items():
+        env_key = 'AGENT_MEMORY_' + key.upper()
+        if isinstance(value, bool):
+            print(f'export {{env_key}}={{str(value).lower()}}')
+        elif value:
+            print(f'export {{env_key}}={{value}}')
+except Exception:
+    pass
+" 2>/dev/null)
+    if [ -n "$MEMORY_CONFIG" ]; then
+        eval "$MEMORY_CONFIG"
+    fi
+fi
+'''
+
+
 def create_hook_scripts(hooks_dir: Path, use_fixed_python: bool = True) -> dict[str, Path]:
     """Create shell script wrappers for the Python hooks.
 
@@ -36,6 +71,7 @@ def create_hook_scripts(hooks_dir: Path, use_fixed_python: bool = True) -> dict[
     """
     scripts = {}
     log_file = get_log_file()
+    config_loader = _get_config_loader_script()
 
     if use_fixed_python:
         # Use the specific Python that has the package installed
@@ -55,6 +91,7 @@ def create_hook_scripts(hooks_dir: Path, use_fixed_python: bool = True) -> dict[
 # Augment Memory - SessionStart Hook
 LOG_FILE="{log_file}"
 echo "[$(date -Iseconds)] SessionStart hook started" >> "$LOG_FILE"
+{config_loader}
 {session_start_cmd} 2>> "$LOG_FILE"
 EXIT_CODE=$?
 echo "[$(date -Iseconds)] SessionStart hook finished with exit code $EXIT_CODE" >> "$LOG_FILE"
@@ -69,6 +106,7 @@ exit $EXIT_CODE
 # Augment Memory - Stop Hook
 LOG_FILE="{log_file}"
 echo "[$(date -Iseconds)] Stop hook started" >> "$LOG_FILE"
+{config_loader}
 {stop_cmd} 2>> "$LOG_FILE"
 EXIT_CODE=$?
 echo "[$(date -Iseconds)] Stop hook finished with exit code $EXIT_CODE" >> "$LOG_FILE"
@@ -83,6 +121,7 @@ exit $EXIT_CODE
 # Augment Memory - PostToolUse Hook (tool tracking)
 LOG_FILE="{log_file}"
 echo "[$(date -Iseconds)] PostToolUse hook started" >> "$LOG_FILE"
+{config_loader}
 {post_tool_cmd} 2>> "$LOG_FILE"
 EXIT_CODE=$?
 echo "[$(date -Iseconds)] PostToolUse hook finished with exit code $EXIT_CODE" >> "$LOG_FILE"
